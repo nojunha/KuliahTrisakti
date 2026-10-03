@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Simulasi Ledakan Gas MTA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: lembar inspeksi teknik — header kasus, panggung simulasi penampang gedung + panel log, lalu jawaban soal. */
+:root {
+  --bg: #eceff1;
+  --panel: #f8f9fa;
+  --ink: #1b2229;
+  --muted: #5b6670;
+  --line: #c9d0d6;
+  --steel: #dde2e6;
+  --pipe: #7a8691;
+  --gas: #e0a800;
+  --gas-ink: #8a6500;
+  --danger: #c8372a;
+  --danger-soft: #f6dcd8;
+  --safe: #237f55;
+  --safe-soft: #d6ede1;
+  --flame: #ef6c1a;
+  --shade: #0d1b2e;
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12171b; --panel: #1a2026; --ink: #e4e8eb; --muted: #94a0aa; --line: #2f3841;
+    --steel: #232b32; --pipe: #8d99a4; --gas: #f2be2a; --gas-ink: #f2be2a;
+    --danger: #ef5b4c; --danger-soft: #3a1f1c; --safe: #4cc38a; --safe-soft: #17332a; --flame: #ff8a3d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12171b; --panel: #1a2026; --ink: #e4e8eb; --muted: #94a0aa; --line: #2f3841;
+  --steel: #232b32; --pipe: #8d99a4; --gas: #f2be2a; --gas-ink: #f2be2a;
+  --danger: #ef5b4c; --danger-soft: #3a1f1c; --safe: #4cc38a; --safe-soft: #17332a; --flame: #ff8a3d;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 var(--font-body); }
+.wrap { max-width: 1180px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 56px; display: grid; gap: 40px; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 700; line-height: 1.05; text-wrap: balance; margin: 0; letter-spacing: .01em; }
+h1 { font-size: clamp(2.2rem, 5vw, 3.6rem); text-transform: uppercase; }
+h2 { font-size: 2rem; text-transform: uppercase; }
+h3 { font-size: 1.35rem; }
+p { margin: 0; }
+.eyebrow { font: 500 .78rem/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+
+/* Header kasus */
+header { display: grid; gap: 18px; border-bottom: 3px solid var(--ink); padding-bottom: 22px; }
+.hazard { height: 10px; background: repeating-linear-gradient(-45deg, var(--gas) 0 14px, var(--ink) 14px 28px); border-radius: 2px; }
+.lede { max-width: 70ch; color: var(--muted); }
+.facts { display: flex; flex-wrap: wrap; gap: 10px 28px; font-family: var(--font-mono); font-size: .85rem; }
+.facts b { display: block; font: 700 1.7rem/1 var(--font-display); color: var(--ink); }
+.facts div { color: var(--muted); }
+
+/* Simulator */
+.sim { display: grid; gap: 14px; }
+.sim-top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+.toggle { display: inline-flex; border: 2px solid var(--ink); border-radius: 6px; overflow: hidden; }
+.toggle button { font: 600 1rem/1 var(--font-display); letter-spacing: .06em; text-transform: uppercase; padding: 10px 16px; border: 0; background: var(--panel); color: var(--ink); cursor: pointer; }
+.toggle button[aria-pressed="true"].bad { background: var(--danger); color: #fff; }
+.toggle button[aria-pressed="true"].good { background: var(--safe); color: #fff; }
+.stage { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 860px) { .stage { grid-template-columns: 1fr; } }
+.canvas { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; position: relative; }
+.canvas svg { display: block; width: 100%; height: auto; }
+.flash { position: absolute; inset: 0; background: radial-gradient(circle at 72% 35%, #fff6c2, var(--flame) 40%, transparent 75%); opacity: 0; pointer-events: none; }
+.flash.go { animation: flash 1.1s ease-out; }
+@keyframes flash { 0% { opacity: 0 } 8% { opacity: .95 } 100% { opacity: 0 } }
+.canvas.shake { animation: shake .5s linear; }
+@keyframes shake { 0%,100% { transform: none } 20% { transform: translate(-6px,3px) } 40% { transform: translate(5px,-4px) } 60% { transform: translate(-4px,2px) } 80% { transform: translate(3px,-2px) } }
+
+.log { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+.clock { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.clock .time { font: 700 2.4rem/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.clock .stepn { font: 500 .8rem var(--font-mono); color: var(--muted); }
+.log h3 { font-size: 1.6rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 500 .76rem/1.3 var(--font-mono); padding: 4px 8px; border-radius: 4px; border: 1px solid; }
+.chip.bad { color: var(--danger); background: var(--danger-soft); border-color: var(--danger); }
+.chip.good { color: var(--safe); background: var(--safe-soft); border-color: var(--safe); }
+.meters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
+.meter-lbl { font: 500 .72rem var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.bar { height: 10px; background: var(--steel); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+.bar i { display: block; height: 100%; width: 0; background: var(--gas); transition: width .7s ease, background .3s; }
+.bar i.hot { background: var(--danger); }
+.big { font: 700 1.6rem/1 var(--font-display); font-variant-numeric: tabular-nums; margin-top: 4px; }
+.big.bad { color: var(--danger); } .big.good { color: var(--safe); }
+
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn { font: 600 .95rem/1 var(--font-display); letter-spacing: .06em; text-transform: uppercase; padding: 10px 14px; border-radius: 5px; border: 2px solid var(--ink); background: var(--panel); color: var(--ink); cursor: pointer; }
+.btn.primary { background: var(--ink); color: var(--bg); }
+.btn:disabled { opacity: .35; cursor: default; }
+.btn:focus-visible, .toggle button:focus-visible, .steps button:focus-visible, .tabs button:focus-visible { outline: 3px solid var(--gas); outline-offset: 2px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px; }
+.steps button { width: 100%; text-align: left; font: 500 .78rem/1.3 var(--font-body); padding: 8px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--muted); cursor: pointer; height: 100%; }
+.steps button span { display: block; font: 500 .72rem var(--font-mono); }
+.steps button.done { color: var(--ink); }
+.steps button.cur { border-color: var(--ink); color: var(--ink); box-shadow: inset 0 -3px 0 var(--accent-step, var(--gas)); }
+
+/* SVG */
+.s-floor { fill: var(--steel); }
+.s-slab { fill: var(--line); }
+.s-lbl { font: 600 13px var(--font-display); letter-spacing: .1em; fill: var(--muted); }
+.s-sm { font: 500 10px var(--font-mono); fill: var(--muted); }
+.s-name { font: 600 12px var(--font-display); letter-spacing: .04em; fill: var(--ink); }
+.pipe { stroke: var(--pipe); stroke-width: 6; fill: none; stroke-linecap: round; }
+.pipe.live { stroke: var(--gas); }
+.counter { fill: var(--panel); stroke: var(--ink); stroke-width: 1.5; transition: fill .4s; }
+.counter.wreck { fill: var(--danger-soft); stroke: var(--danger); stroke-dasharray: 5 3; }
+.meterbox rect { fill: var(--panel); stroke: var(--ink); stroke-width: 1.5; }
+.meterbox circle { fill: none; stroke: var(--ink); }
+.meterbox { transition: opacity .5s, transform .5s; }
+.meterbox.gone { opacity: 0; transform: translateY(-14px); }
+.valve path { fill: var(--panel); stroke: var(--ink); stroke-width: 1.5; }
+.valve .handle { stroke: var(--ink); stroke-width: 3; stroke-linecap: round; transition: transform .4s; transform-box: fill-box; transform-origin: 0% 50%; }
+.valve.open path { fill: var(--gas); }
+.valve.closed .handle, .valve.locked .handle, .valve.unsafe .handle { transform: rotate(90deg); }
+.valve.unsafe path { stroke: var(--danger); stroke-width: 2.5; }
+.valve .ring { fill: none; stroke: var(--danger); stroke-width: 2; opacity: 0; }
+.valve.unsafe .ring { opacity: 1; animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .2 } }
+.loto { opacity: 0; transition: opacity .3s; }
+.loto.on { opacity: 1; }
+.loto rect { fill: var(--safe); }
+.loto text { font: 600 8px var(--font-mono); fill: #fff; }
+.flange { fill: var(--ink); opacity: 0; transition: opacity .3s; }
+.flange.on { opacity: 1; }
+.openend { fill: none; stroke: var(--danger); stroke-width: 2; opacity: 0; }
+.openend.on { opacity: 1; animation: pulse 1s infinite; }
+.flame { fill: var(--flame); opacity: 0; transition: opacity .3s; transform-box: fill-box; transform-origin: 50% 100%; }
+.flame.on { opacity: 1; animation: flick .4s infinite alternate; }
+.spark { fill: var(--gas); opacity: 0; }
+.spark.on { animation: spark .5s steps(2) infinite; }
+@keyframes flick { to { transform: scaleY(.8) } }
+@keyframes spark { 50% { opacity: 1 } }
+.gascloud circle { fill: var(--gas); fill-opacity: .28; }
+.gascloud { opacity: 0; transition: opacity .8s, transform 1s; transform-box: fill-box; transform-origin: 20% 0%; }
+.boom { opacity: 0; transform-box: fill-box; transform-origin: 50% 50%; }
+.boom.go { animation: boom 1.2s ease-out forwards; }
+.boom path { fill: var(--flame); stroke: var(--danger); stroke-width: 2; }
+@keyframes boom { 0% { opacity: 0; transform: scale(.2) } 15% { opacity: 1; transform: scale(1.1) } 100% { opacity: 0; transform: scale(1.5) } }
+.glass rect { fill: none; stroke: var(--pipe); stroke-width: 2; transition: stroke .3s; }
+.glass line { stroke: var(--danger); stroke-width: 1.5; opacity: 0; }
+.glass.broken rect { stroke: var(--danger); stroke-dasharray: 4 4; }
+.glass.broken line { opacity: 1; }
+.smoke { fill: var(--pipe); opacity: 0; transition: opacity 1s; }
+.smoke.on { opacity: .35; }
+.person { transition: transform 1s ease-in-out, opacity .5s; }
+.person.off { opacity: 0; }
+.person circle, .person rect { stroke: var(--ink); stroke-width: 1.2; }
+.p-tech circle, .p-tech rect { fill: #2f6fb3; }
+.p-emp circle, .p-emp rect { fill: #9a5bb5; }
+.p-sec circle, .p-sec rect { fill: #4b5560; }
+.p-hse circle, .p-hse rect { fill: var(--safe); }
+.person text { font: 600 9px var(--font-mono); fill: var(--ink); text-anchor: middle; }
+.person.hurt circle, .person.hurt rect { fill: var(--danger); }
+.tape { stroke: var(--gas); stroke-width: 4; stroke-dasharray: 10 8; opacity: 0; transition: opacity .4s; }
+.tape.on { opacity: 1; }
+.detector rect { fill: var(--panel); stroke: var(--ink); }
+.detector circle { fill: var(--pipe); }
+.detector.ok circle { fill: var(--safe); }
+.detector.alarm circle { fill: var(--danger); animation: pulse .5s infinite; }
+.detector { opacity: 0; transition: opacity .4s; }
+.detector.on { opacity: 1; }
+.esv { opacity: 0; transition: opacity .4s; }
+.esv.on { opacity: 1; }
+.esv path { fill: var(--gas); stroke: var(--ink); stroke-width: 1.5; }
+.esv.shut path { fill: var(--safe); }
+.night { fill: var(--shade); opacity: 0; transition: opacity .6s; pointer-events: none; }
+.night.on { opacity: .18; }
+.newfc { opacity: .35; transition: opacity .6s; }
+.newfc.on { opacity: 1; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font: 500 .74rem var(--font-mono); color: var(--muted); padding: 10px 14px; border-top: 1px solid var(--line); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; border: 1px solid var(--ink); }
+
+/* Perbandingan */
+.compare-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: .9rem; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+th { font: 600 .95rem var(--font-display); letter-spacing: .06em; text-transform: uppercase; }
+th.bad { color: var(--danger); } th.good { color: var(--safe); }
+td:first-child { font: 500 .78rem var(--font-mono); color: var(--muted); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+
+/* Jawaban */
+.answers { display: grid; gap: 18px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 2px solid var(--ink); }
+.tabs button { font: 600 1rem/1.1 var(--font-display); letter-spacing: .04em; padding: 10px 14px; border: 1px solid var(--line); border-bottom: 0; border-radius: 6px 6px 0 0; background: var(--panel); color: var(--muted); cursor: pointer; text-align: left; }
+.tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.qa { display: grid; gap: 16px; }
+.q { font-style: italic; color: var(--muted); max-width: 75ch; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.card h4 { margin: 0; font: 600 .78rem var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.card ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.tag { display: inline-block; font: 600 .7rem/1 var(--font-mono); padding: 3px 6px; border-radius: 3px; margin-right: 6px; vertical-align: 1px; }
+.tag.l { background: var(--danger-soft); color: var(--danger); }
+.tag.tl { background: var(--steel); color: var(--ink); }
+.tag.ok { background: var(--safe-soft); color: var(--safe); }
+.phase { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); }
+.phase:first-child { border-top: 0; }
+.phase .n { font: 700 2.6rem/1 var(--font-display); color: var(--gas-ink); }
+.phase h3 { margin-bottom: 6px; }
+.phase ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 80ch; }
+footer { font: 500 .78rem var(--font-mono); color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="hazard" aria-hidden="true"></div>
+  <span class="eyebrow">Soal Kasus 2 · Manajemen Risiko</span>
+  <h1>Ledakan Gas di Food Court Mal Taman Anggrek</h1>
+  <p class="lede">Rabu, 20 Februari 2019, sekitar pukul 10.30 WIB, ledakan terjadi di food court lantai 4 Mal Taman Anggrek, Tanjung Duren, Jakarta Barat. Sumbernya kebocoran gas saat pekerjaan pemindahan meteran gas untuk relokasi food court ke lantai 2. Simulasi di bawah memutar ulang kronologi kejadian, lalu memutar skenario yang sama bila proses manajemen risiko dijalankan.</p>
+  <div class="facts">
+    <div><b>7</b>orang luka</div>
+    <div><b>3</b>luka bakar &gt;20%</div>
+    <div><b>1</b>patah tulang</div>
+    <div><b>12</b>counter rusak</div>
+    <div><b>2</b>restoran rusak</div>
+    <div><b>2</b>teknisi tersangka</div>
+  </div>
+</header>
+
+<section class="sim" aria-labelledby="sim-h">
+  <div class="sim-top">
+    <div style="display:grid;gap:6px">
+      <span class="eyebrow">Simulasi penampang gedung</span>
+      <h2 id="sim-h">Putar ulang kejadian</h2>
+    </div>
+    <div class="toggle" role="group" aria-label="Pilih skenario">
+      <button id="btn-kejadian" class="bad" aria-pressed="true">Kejadian (SOP dilanggar)</button>
+      <button id="btn-solusi" class="good" aria-pressed="false">Solusi (manajemen risiko)</button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="canvas" id="canvas">
+      <svg viewBox="0 0 820 440" role="img" aria-label="Penampang lantai 4 dan lantai 2 Mal Taman Anggrek dengan jalur pipa gas">
+        <!-- Lantai 4 -->
+        <rect class="s-floor" x="20" y="30" width="780" height="210"/>
+        <rect class="s-slab" x="20" y="240" width="780" height="8"/>
+        <text class="s-lbl" x="96" y="50">LANTAI 4 · FOOD COURT</text>
+        <!-- Lantai 3 -->
+        <text class="s-sm" x="96" y="272">LANTAI 3</text>
+        <rect class="s-slab" x="20" y="282" width="780" height="8"/>
+        <!-- Lantai 2 -->
+        <rect class="s-floor" x="20" y="290" width="780" height="130"/>
+        <rect class="s-slab" x="20" y="420" width="780" height="8"/>
+        <text class="s-lbl" x="96" y="310">LANTAI 2 · LOKASI FOOD COURT BARU</text>
+
+        <!-- Kaca -->
+        <g class="glass" id="glass">
+          <rect x="690" y="80" width="30" height="80"/><rect x="726" y="80" width="30" height="80"/><rect x="762" y="80" width="30" height="80"/>
+          <line x1="695" y1="90" x2="712" y2="130"/><line x1="740" y1="85" x2="730" y2="150"/><line x1="770" y1="100" x2="788" y2="140"/>
+          <line x1="700" y1="236" x2="708" y2="232"/><line x1="730" y1="236" x2="742" y2="233"/><line x1="770" y1="236" x2="776" y2="231"/>
+        </g>
+        <text class="s-sm" x="704" y="174">kaca</text>
+
+        <!-- Restoran -->
+        <rect class="counter" id="resto1" x="660" y="176" width="64" height="30"/>
+        <rect class="counter" id="resto2" x="730" y="176" width="64" height="30"/>
+        <text class="s-name" x="664" y="196">Resto 1</text>
+        <text class="s-name" x="734" y="196">Resto 2</text>
+
+        <!-- Riser & header -->
+        <path class="pipe live" id="riser" d="M60 420 V70 H620"/>
+        <text class="s-sm" x="28" y="380" transform="rotate(-90 28 380)">riser gas</text>
+
+        <!-- ESV (katup pemutus otomatis) -->
+        <g class="esv" id="esv" transform="translate(60 160)">
+          <path d="M-9 -8 L9 -8 L-9 8 L9 8 Z" transform="rotate(90)"/>
+          <text class="s-sm" x="12" y="4">ESV</text>
+        </g>
+
+        <!-- Detektor gas -->
+        <g class="detector" id="detector" transform="translate(520 40)">
+          <rect x="0" y="0" width="34" height="16" rx="3"/>
+          <circle cx="9" cy="8" r="4"/>
+          <text class="s-sm" x="16" y="12">GD</text>
+        </g>
+
+        <!-- Tiga jalur gerai, dibangun oleh JS -->
+        <g id="drops"></g>
+
+        <!-- Awan gas -->
+        <g class="gascloud" id="gascloud">
+          <circle cx="590" cy="130" r="18"/>
+          <circle cx="620" cy="140" r="30"/>
+          <circle cx="560" cy="150" r="28"/>
+          <circle cx="640" cy="175" r="38"/>
+          <circle cx="540" cy="190" r="34"/>
+          <circle cx="600" cy="205" r="44"/>
+        </g>
+
+        <!-- Asap pasca ledakan -->
+        <g id="smoke">
+          <circle class="smoke" cx="560" cy="110" r="40"/><circle class="smoke" cx="620" cy="95" r="34"/><circle class="smoke" cx="680" cy="120" r="30"/><circle class="smoke" cx="480" cy="120" r="28"/>
+        </g>
+
+        <!-- Garis pembatas area kerja -->
+        <line class="tape" id="tape" x1="180" y1="236" x2="660" y2="236"/>
+
+        <!-- Orang -->
+        <g class="person p-tech off" id="p-spv"><circle cx="0" cy="-22" r="6"/><rect x="-6" y="-15" width="12" height="15" rx="3"/><text y="-32">SPV</text></g>
+        <g class="person p-tech off" id="p-tek"><circle cx="0" cy="-22" r="6"/><rect x="-6" y="-15" width="12" height="15" rx="3"/><text y="-32">TEK</text></g>
+        <g class="person p-hse off" id="p-hse"><circle cx="0" cy="-22" r="6"/><rect x="-6" y="-15" width="12" height="15" rx="3"/><text y="-32">HSE</text></g>
+        <g class="person p-emp off" id="p-emp"><circle cx="0" cy="-22" r="6"/><rect x="-6" y="-15" width="12" height="15" rx="3"/><text y="-32">PEGAWAI</text></g>
+        <g class="person p-sec off" id="p-sec"><circle cx="0" cy="-22" r="6"/><rect x="-6" y="-15" width="12" height="15" rx="3"/><text y="-32">SATPAM</text></g>
+
+        <!-- Food court baru lt.2 -->
+        <g class="newfc" id="newfc">
+          <path class="pipe" id="pipe2" d="M60 340 H420 M260 340 V380 M420 340 V380"/>
+          <rect class="counter" x="210" y="380" width="100" height="30"/>
+          <rect class="counter" x="370" y="380" width="100" height="30"/>
+          <text class="s-name" x="222" y="400">Gerai baru</text>
+          <text class="s-name" x="382" y="400">Gerai baru</text>
+        </g>
+
+        <!-- Ledakan -->
+        <g class="boom" id="boom"><path d="M600 60 L620 115 L680 90 L645 140 L720 160 L645 175 L690 230 L615 195 L600 250 L580 195 L505 225 L555 170 L480 150 L555 135 L520 80 L580 115 Z"/></g>
+
+        <rect class="night" id="night" x="20" y="30" width="780" height="398"/>
+      </svg>
+      <div class="flash" id="flash"></div>
+      <div class="legend">
+        <span><i style="background:var(--gas)"></i>gas / tuas terbuka</span>
+        <span><i style="background:var(--panel)"></i>tuas tertutup</span>
+        <span><i style="background:var(--danger)"></i>tidak diamankan / ujung pipa terbuka</span>
+        <span><i style="background:var(--safe)"></i>terkunci (LOTO)</span>
+        <span><i style="background:var(--ink)"></i>flange penutup</span>
+      </div>
+    </div>
+
+    <aside class="log" aria-live="polite">
+      <div class="clock"><span class="time" id="time">09.00</span><span class="stepn" id="stepn">Langkah 1/8</span></div>
+      <h3 id="title">Kondisi awal</h3>
+      <p id="text"></p>
+      <div class="chips" id="chips"></div>
+      <div class="meters">
+        <div><div class="meter-lbl">Konsentrasi gas (%LEL)</div><div class="bar"><i id="lel"></i></div><div class="big" id="lel-n">0%</div></div>
+        <div><div class="meter-lbl">Korban luka</div><div class="big" id="hurt">0</div></div>
+      </div>
+      <div class="controls">
+        <button class="btn" id="prev">Sebelumnya</button>
+        <button class="btn primary" id="next">Berikutnya</button>
+        <button class="btn" id="play">Putar otomatis</button>
+      </div>
+    </aside>
+  </div>
+  <ol class="steps" id="steps"></ol>
+</section>
+
+<section aria-labelledby="cmp-h" style="display:grid;gap:14px">
+  <span class="eyebrow">Titik kegagalan dan pengendaliannya</span>
+  <h2 id="cmp-h">Kejadian vs solusi</h2>
+  <div class="compare-wrap">
+    <table>
+      <thead><tr><th>Aspek</th><th class="bad">Yang terjadi di MTA</th><th class="good">Pengendalian yang seharusnya</th></tr></thead>
+      <tbody>
+        <tr><td>Jadwal kerja</td><td>Pemindahan meteran saat jam operasional, tenant tetap beraktivitas</td><td>Dikerjakan malam setelah mal tutup; area kerja ditutup dan diberi pembatas</td></tr>
+        <tr><td>Fasilitas</td><td>Hanya 2 flange untuk 3 titik sambungan</td><td>Flange sesuai jumlah titik (3/3) disiapkan sebelum pekerjaan dimulai</td></tr>
+        <tr><td>SOP &amp; checklist</td><td>Tuas Depot Betawi tidak ditutup; SOP tidak dijalankan</td><td>Checklist wajib per titik, lock-out/tag-out pada setiap tuas</td></tr>
+        <tr><td>Pengawasan</td><td>Supervisor ikut turun ke lantai 2 tanpa pengecekan ulang; tidak ada tim HSE</td><td>HSE melakukan double check dan sign-off sebelum area ditinggalkan</td></tr>
+        <tr><td>Tenant</td><td>Tidak tahu ada pekerjaan gas; pegawai membuka tuas sendiri</td><td>Sosialisasi tertulis, larangan membuka tuas, nomor kontak engineering</td></tr>
+        <tr><td>Deteksi</td><td>Tidak ada detektor gas atau katup pemutus otomatis</td><td>Detektor gas + ESV yang memutus aliran saat kadar gas naik</td></tr>
+        <tr><td>Pembiayaan risiko</td><td>Tidak terlihat asuransi atau klausul kontrak</td><td>Asuransi properti/IAR, CAR/EAR, business interruption, public liability</td></tr>
+        <tr><td>Hasil</td><td>Ledakan, 7 luka, 12 counter dan 2 restoran rusak</td><td>Relokasi selesai tanpa korban</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="answers" aria-labelledby="ans-h">
+  <span class="eyebrow">Jawaban soal kasus 2</span>
+  <h2 id="ans-h">Analisis kerugian dan manajemen risiko</h2>
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tab-a" aria-controls="pan-a" aria-selected="true">a · Kerugian langsung &amp; tidak langsung</button>
+    <button role="tab" id="tab-b" aria-controls="pan-b" aria-selected="false">b · Liability &amp; personil</button>
+    <button role="tab" id="tab-c" aria-controls="pan-c" aria-selected="false">c · Yang tidak dilakukan MTA</button>
+  </div>
+
+  <div class="qa" role="tabpanel" id="pan-a" aria-labelledby="tab-a">
+    <p class="q">Jelaskan dalam peristiwa di atas telah timbul kerugian langsung dan tidak langsung baik bagi pengelola mal maupun tenant (penyewa). <b>(Property exposures)</b></p>
+    <div class="cols">
+      <div class="card">
+        <h4>Pengelola mal (MTA)</h4>
+        <ul>
+          <li><span class="tag l">Langsung</span>Kerusakan fisik gedung: kaca pecah, interior food court lantai 4, serta instalasi pipa dan meteran gas yang harus diperbaiki atau diganti.</li>
+          <li><span class="tag tl">Tidak langsung</span>Food court berhenti beroperasi sehingga pendapatan sewa dan service charge hilang, jumlah pengunjung turun, timbul biaya pembersihan dan investigasi, relokasi food court ke lantai 2 tertunda, serta citra dan reputasi mal rusak.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Tenant (penyewa)</h4>
+        <ul>
+          <li><span class="tag l">Langsung</span>12 counter dan 2 restoran porak-poranda: peralatan dapur, perabot, dan persediaan bahan baku rusak.</li>
+          <li><span class="tag tl">Tidak langsung</span>Kehilangan pendapatan penjualan selama tutup (business interruption), sementara biaya tetap seperti gaji karyawan dan sewa tetap berjalan, serta kehilangan pelanggan.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="qa" role="tabpanel" id="pan-b" aria-labelledby="tab-b" hidden>
+    <p class="q">Jelaskan ada tidaknya kerugian berupa kewajiban kepada pihak lain dan personil.</p>
+    <div class="cols">
+      <div class="card">
+        <h4>Kewajiban kepada pihak lain (liability) · <span style="color:var(--danger)">ADA</span></h4>
+        <ul>
+          <li>MTA wajib menanggung biaya pengobatan dan ganti rugi kepada 7 korban luka, serta ganti rugi kerusakan counter dan restoran milik tenant.</li>
+          <li>MTA menghadapi tuntutan hukum. Dua teknisinya (supervisor engineer dan teknisi engineer) ditetapkan sebagai tersangka karena lalai sehingga menyebabkan orang lain luka.</li>
+          <li>Tenant yang karyawannya membuka tuas gas juga berpotensi ikut menanggung kewajiban.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Personil · <span style="color:var(--danger)">ADA</span></h4>
+        <ul>
+          <li>7 orang luka-luka, 3 di antaranya luka bakar lebih dari 20% dan 1 orang patah tulang, sehingga kehilangan kemampuan bekerja dan penghasilan.</li>
+          <li>Bagi MTA, dua personil teknis yang berstatus tersangka berarti kehilangan tenaga ahli dan timbul biaya penggantian.</li>
+          <li>Bagi tenant, karyawan yang cedera tidak dapat bekerja.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="qa" role="tabpanel" id="pan-c" aria-labelledby="tab-c" hidden>
+    <p class="q">Apa yang tidak dilakukan oleh pengelola gedung MTA dalam proses manajemen risiko? (Mitigasi bertahap)</p>
+    <div>
+      <div class="phase"><div class="n">1</div><div><h3>Identifikasi risiko</h3><ul>
+        <li>Tidak melakukan inspeksi langsung dan membuat flow chart pekerjaan pemindahan meteran gas, sehingga tidak semua titik terpetakan. Tidak ada penegasan pentingnya checklist SOP pekerjaan (3 tuas dibuka, tuas di Depot Betawi tidak ditutup).</li>
+        <li>Tidak memperhitungkan bahwa tenant tetap beroperasi selama pekerjaan berlangsung dan tenant sering berganti-ganti.</li>
+        <li>Tidak ada tim HSE (health, safety and environment) yang membantu mengawasi supervisor teknisi.</li>
+      </ul></div></div>
+      <div class="phase"><div class="n">2</div><div><h3>Pengukuran / evaluasi risiko</h3><ul>
+        <li>Tidak menilai kemungkinan dan akibat kebocoran gas di area ramai pada jam operasional, sehingga risiko yang berdampak fatal ini tidak diprioritaskan.</li>
+      </ul></div></div>
+      <div class="phase"><div class="n">3</div><div><h3>Identifikasi penyebab risiko</h3><ul>
+        <li>Gas bocor dari jalur Depot Betawi yang tidak ditutup, kemudian bertemu sumber api dari kompor, sehingga meledak.</li>
+        <li>Bahaya sosial (kesalahan perilaku manusia): kedua teknisi lalai dan tidak menjalankan SOP atau checklist wajib (hanya menutup 2 dari 3 tuas), dan karyawan tenant membuka tuas gas sendiri ketika kompor tidak menyala.</li>
+        <li>Kesalahan manajemen: fasilitas pengaman kurang (hanya 2 flange), pengawasan supervisor lemah (tidak ada tim HSE untuk double check), tidak ada koordinasi dan sosialisasi kepada tenant tentang pekerjaan gas, dan tenant yang sering berganti tidak memahami utilitas gas.</li>
+      </ul></div></div>
+      <div class="phase"><div class="n">4</div><div><h3>Penanggulangan risiko</h3><ul>
+        <li>Tidak menjadwalkan pekerjaan di luar jam operasional atau menghentikan sementara kegiatan tenant di area kerja.</li>
+        <li>Pencegahan (sistem &amp; prosedur, fasilitas, aturan, SDM): SOP dan checklist penutupan tuas gas tidak ditegakkan dan diawasi; fasilitas tidak memadai (hanya 2 flange untuk 3 titik); tidak ada aturan yang melarang tenant membuka tuas gas; tidak ada pelatihan teknisi dan sosialisasi keselamatan gas kepada tenant sebagaimana saran ahli.</li>
+        <li>Tidak tersedia detektor kebocoran gas atau katup pemutus otomatis, penandaan lock-out/tag-out pada tuas, maupun prosedur tanggap darurat. Karyawan justru membuka tuas saat gas tidak menyala.</li>
+        <li>Tidak terlihat adanya asuransi (properti, business interruption, public liability), klausul tanggung jawab dalam kontrak sewa, atau outsourcing pekerjaan gas kepada kontraktor bersertifikat.</li>
+        <li>Asuransi: tidak disiapkan dana cadangan untuk menanggung kerugian yang tidak dialihkan, seperti asuransi properti / Industrial All Risks (IAR) serta Contractors' All Risks (CAR) / Erection All Risks (EAR).</li>
+      </ul></div></div>
+      <div class="phase"><div class="n">5</div><div><h3>Pengawasan dan evaluasi</h3><ul>
+        <li>Supervisor tidak memastikan seluruh tuas tertutup sebelum meninggalkan lokasi, tidak ada tim pengawas pembanding (misalnya tim HSE), dan tidak ada evaluasi ulang setelah pekerjaan dilakukan.</li>
+      </ul></div></div>
+    </div>
+  </div>
+</section>
+
+<footer>Simulasi edukatif berdasarkan Soal Kasus 2 mata kuliah Manajemen Risiko. Posisi pipa, tuas, dan orang digambar skematis, bukan denah asli gedung.</footer>
+</div>
+
+<script>
+(function () {
+  var NS = 'http://www.w3.org/2000/svg';
+  var DROPS = [{ x: 260, name: 'Counter A' }, { x: 420, name: 'Counter B' }, { x: 590, name: 'Depot Betawi' }];
+  var dropsG = document.getElementById('drops');
+  function el(tag, attrs, parent) {
+    var n = document.createElementNS(NS, tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  var parts = DROPS.map(function (d, i) {
+    var g = el('g', {}, dropsG);
+    var up = el('path', { 'class': 'pipe live', d: 'M' + d.x + ' 70 V124' }, g);
+    var down = el('path', { 'class': 'pipe live', d: 'M' + d.x + ' 148 V176' }, g);
+    var valve = el('g', { 'class': 'valve open', transform: 'translate(' + d.x + ' 98)' }, g);
+    el('circle', { 'class': 'ring', r: 14 }, valve);
+    el('path', { d: 'M-9 -8 L9 -8 L-9 8 L9 8 Z', transform: 'rotate(90)' }, valve);
+    el('line', { 'class': 'handle', x1: 0, y1: 0, x2: 16, y2: 0 }, valve);
+    var loto = el('g', { 'class': 'loto', transform: 'translate(' + (d.x - 34) + ' 92)' }, g);
+    el('rect', { width: 24, height: 12, rx: 2 }, loto);
+    var lt = el('text', { x: 3, y: 9 }, loto); lt.textContent = 'LOTO';
+    var meter = el('g', { 'class': 'meterbox' }, g);
+    el('rect', { x: d.x - 13, y: 124, width: 26, height: 24, rx: 3 }, meter);
+    el('circle', { cx: d.x, cy: 136, r: 7 }, meter);
+    var openend = el('circle', { 'class': 'openend', cx: d.x, cy: 127, r: 9 }, g);
+    var flange = el('rect', { 'class': 'flange', x: d.x - 10, y: 122, width: 20, height: 6, rx: 1 }, g);
+    var counter = el('rect', { 'class': 'counter', x: d.x - 60, y: 176, width: 120, height: 30 }, g);
+    var nm = el('text', { 'class': 's-name', x: d.x - 54, y: 196 }, g); nm.textContent = d.name;
+    var flame = el('path', { 'class': 'flame', d: 'M' + (d.x + 36) + ' 176 q-7 -6 0 -16 q7 10 0 16 z' }, g);
+    var spark = el('path', { 'class': 'spark', d: 'M' + (d.x + 30) + ' 170 l4 -6 l2 5 l4 -7', stroke: 'currentColor', style: 'stroke:var(--gas);stroke-width:2;fill:none' }, g);
+    var vl = el('text', { 'class': 's-sm', x: d.x + 14, y: 94 }, g); vl.textContent = 'tuas ' + (i + 1);
+    return { up: up, down: down, valve: valve, loto: loto, meter: meter, openend: openend, flange: flange, counter: counter, flame: flame, spark: spark };
+  });
+
+  // Posisi orang (x, y = kaki)
+  var POS = {
+    off: null,
+    f4a: [[230, 236], [300, 236]], f4b: [[560, 236], [620, 236]], f2: [[300, 418], [330, 418]],
+    stall: [640, 236], valve: [606, 236], phone: [520, 236],
+    secF4: [470, 236], hse4: [500, 236], hse2: [380, 418]
+  };
+
+  var V = 'open', C = 'closed', L = 'locked', U = 'unsafe';
+  var SCEN = {
+    kejadian: [
+      { t: '09.00', title: 'Kondisi awal', text: 'Food court lantai 4 beroperasi. Gas mengalir dari riser melalui tiga tuas dan meteran ke kompor tiap gerai. MTA berencana merelokasi food court ke lantai 2, sehingga meteran gas harus dipindahkan.',
+        valves: [V, V, V], meter: [1, 1, 1], flange: [0, 0, 0], stove: ['on', 'on', 'off'], tech: 'off', lel: 0,
+        chips: [['bad', 'Pekerjaan gas dijadwalkan pada jam operasional']] },
+      { t: '09.15', title: 'Teknisi mulai bekerja', text: 'Supervisor engineer dan teknisi engineer tiba di lantai 4 untuk mencopot meteran gas. Tidak ada inspeksi lapangan, flow chart pekerjaan, atau tim HSE yang mendampingi. Tenant tidak diberi tahu.',
+        valves: [V, V, V], meter: [1, 1, 1], flange: [0, 0, 0], stove: ['off', 'off', 'off'], tech: 'f4a', lel: 0,
+        chips: [['bad', 'Tanpa flow chart & checklist'], ['bad', 'Tanpa tim HSE'], ['bad', 'Tenant tidak disosialisasikan']] },
+      { t: '09.40', title: 'Hanya dua jalur ditutup', text: 'Tiga sambungan gas dilepas, tetapi teknisi hanya membawa dua flange. Jalur Counter A dan B ditutup dan diberi flange. Tuas dan jalur Depot Betawi tidak ditutup: ujung pipanya terbuka tanpa penutup aliran, padahal SOP mewajibkan setiap meteran yang dicopot diberi penutup.',
+        valves: [C, C, U], meter: [0, 0, 0], flange: [1, 1, 0], stove: ['off', 'off', 'off'], tech: 'f4b', lel: 0,
+        chips: [['bad', 'Fasilitas kurang: 2 flange untuk 3 titik'], ['bad', 'SOP penutupan tuas tidak dijalankan']] },
+      { t: '10.00', title: 'Teknisi turun ke lantai 2', text: 'Kedua teknisi meninggalkan lantai 4 untuk memasang pipa gas di lantai 2. Supervisor tidak memeriksa ulang apakah semua tuas sudah tertutup. Area kerja dibiarkan tanpa pembatas dan tanpa pengawas.',
+        valves: [C, C, U], meter: [0, 0, 0], flange: [1, 1, 0], stove: ['off', 'off', 'off'], tech: 'f2', lel: 0, newfc: 1,
+        chips: [['bad', 'Tidak ada pengecekan ulang'], ['bad', 'Area kerja tanpa pembatas']] },
+      { t: '10.20', title: 'Kompor tidak menyala', text: 'Seorang pegawai Depot Betawi datang untuk persiapan buka dan menyalakan kompor. Kompor tidak hidup karena meterannya sudah dicopot. Pegawai tidak tahu ada pekerjaan gas yang sedang berjalan.',
+        valves: [C, C, U], meter: [0, 0, 0], flange: [1, 1, 0], stove: ['off', 'off', 'try'], tech: 'f2', emp: 'stall', lel: 0, newfc: 1,
+        chips: [['bad', 'Tenant tidak tahu ada pekerjaan gas'], ['bad', 'Tenant sering berganti']] },
+      { t: '10.25', title: 'Tuas dibuka, gas menyembur', text: 'Karena kompor tidak hidup, pegawai membuka tuas gas. Gas keluar deras dari ujung pipa yang terbuka. Pegawai meminta bantuan petugas keamanan. Gas menyebar ke area food court.',
+        valves: [C, C, V], meter: [0, 0, 0], flange: [1, 1, 0], stove: ['off', 'off', 'off'], tech: 'f2', emp: 'valve', sec: 'secF4', lel: 85, gas: 1, open3: 1, newfc: 1,
+        chips: [['bad', 'Tidak ada larangan membuka tuas'], ['bad', 'Tanpa detektor gas & katup pemutus']] },
+      { t: '10.30', title: 'Ledakan', text: 'Gas yang terkumpul bertemu percikan api dari kompor dan meledak. Ledakan memorak-porandakan 12 counter dan 2 restoran, kaca mal pecah berserakan, dan 7 orang luka-luka.',
+        valves: [C, C, V], meter: [0, 0, 0], flange: [1, 1, 0], stove: ['off', 'off', 'try'], tech: 'f2', emp: 'valve', sec: 'secF4', lel: 100, gas: 1, open3: 1, boom: 1, hurt: 7, wreck: 1, newfc: 1,
+        chips: [['bad', 'Gas + sumber api = ledakan']] },
+      { t: '10.31', title: 'Dampak', text: '7 korban luka; 3 orang luka bakar lebih dari 20% dan 1 orang patah tulang, dirawat di RS Royal Taruma. Polisi memastikan sumber ledakan adalah kebocoran gas dan menetapkan supervisor engineer serta teknisi engineer MTA sebagai tersangka kelalaian. Relokasi food court tertunda.',
+        valves: [C, C, V], meter: [0, 0, 0], flange: [1, 1, 0], stove: ['off', 'off', 'off'], tech: 'f2', emp: 'valve', sec: 'secF4', lel: 20, open3: 1, hurt: 7, wreck: 1, smoke: 1, injured: 1, newfc: 1,
+        chips: [['bad', 'Kerugian properti'], ['bad', 'Liability ke korban & tenant'], ['bad', 'Kerugian personil'], ['bad', 'Reputasi mal']] }
+    ],
+    solusi: [
+      { t: 'H-7', title: 'Identifikasi & evaluasi risiko', text: 'Tim engineering dan HSE menginspeksi lokasi dan membuat flow chart pemindahan meteran. Ketiga titik tercatat, termasuk Depot Betawi. Kebocoran gas di area ramai dinilai berisiko tinggi, sehingga pekerjaan dijadwalkan setelah mal tutup. Seluruh tenant menerima sosialisasi tertulis. Polis IAR, CAR, dan public liability dipastikan aktif.',
+        valves: [V, V, V], meter: [1, 1, 1], flange: [0, 0, 0], stove: ['on', 'on', 'on'], tech: 'off', lel: 0, det: 'ok', esv: 'on',
+        chips: [['good', 'Tahap 1: inspeksi & flow chart'], ['good', 'Tahap 2: risiko diprioritaskan'], ['good', 'Tahap 4: asuransi & sosialisasi']] },
+      { t: '22.00', title: 'Area ditutup, gas diisolasi', text: 'Mal sudah tutup. Area food court diberi pembatas. Teknisi menutup ketiga tuas, lalu memasang gembok dan label lock-out/tag-out di setiap tuas. Petugas HSE mendampingi dengan checklist.',
+        valves: [L, L, L], meter: [1, 1, 1], flange: [0, 0, 0], stove: ['off', 'off', 'off'], tech: 'f4a', hse: 'hse4', lel: 0, det: 'ok', esv: 'on', tape: 1, night: 1,
+        chips: [['good', 'Di luar jam operasional'], ['good', 'Lock-out/tag-out 3/3 tuas'], ['good', 'Didampingi HSE']] },
+      { t: '22.30', title: 'Meteran dicopot, 3 flange terpasang', text: 'Meteran dicopot setelah tuas terkunci. Flange disiapkan sesuai jumlah titik, sehingga ketiga ujung pipa ditutup, termasuk jalur Depot Betawi. Setiap titik dicentang di checklist wajib.',
+        valves: [L, L, L], meter: [0, 0, 0], flange: [1, 1, 1], stove: ['off', 'off', 'off'], tech: 'f4b', hse: 'hse4', lel: 0, det: 'ok', esv: 'on', tape: 1, night: 1,
+        chips: [['good', 'Flange 3/3'], ['good', 'Checklist SOP ditegakkan']] },
+      { t: '23.00', title: 'Pemeriksaan ulang HSE', text: 'Sebelum teknisi turun ke lantai 2, HSE memeriksa ulang setiap titik dan mengukur kadar gas: 0% LEL. Supervisor dan HSE menandatangani berita acara. Baru setelah itu teknisi memasang pipa di lantai 2.',
+        valves: [L, L, L], meter: [0, 0, 0], flange: [1, 1, 1], stove: ['off', 'off', 'off'], tech: 'f2', hse: 'hse4', lel: 0, det: 'ok', esv: 'on', tape: 1, night: 1, newfc: 1,
+        chips: [['good', 'Tahap 5: double check HSE'], ['good', 'Sign-off sebelum pindah lokasi']] },
+      { t: '09.00', title: 'Pegawai tenant datang', text: 'Pagi harinya pegawai Depot Betawi mencoba menyalakan kompor dan tidak menyala. Tuas terkunci dan berlabel JANGAN DIBUKA. Sesuai sosialisasi, pegawai tidak menyentuh tuas dan menghubungi engineering.',
+        valves: [L, L, L], meter: [0, 0, 0], flange: [1, 1, 1], stove: ['off', 'off', 'try'], tech: 'f2', emp: 'phone', lel: 0, det: 'ok', esv: 'on', newfc: 1,
+        chips: [['good', 'Aturan larangan membuka tuas'], ['good', 'Prosedur lapor ke engineering']] },
+      { t: 'Uji', title: 'Lapis pengaman terakhir', text: 'Andai tetap ada kebocoran kecil, detektor gas berbunyi pada ambang rendah dan katup pemutus otomatis (ESV) di riser menutup aliran. Satpam mengosongkan area dan mematikan sumber api sebelum kadar gas mencapai batas ledak.',
+        valves: [L, L, L], meter: [0, 0, 0], flange: [1, 1, 1], stove: ['off', 'off', 'off'], tech: 'f2', emp: 'phone', sec: 'secF4', lel: 10, gas: 0.35, det: 'alarm', esv: 'shut', newfc: 1,
+        chips: [['good', 'Detektor gas'], ['good', 'ESV menutup otomatis'], ['good', 'Tanggap darurat']] },
+      { t: 'Selesai', title: 'Relokasi aman', text: 'Instalasi baru di lantai 2 diuji kebocorannya lalu dioperasikan. Tim mengevaluasi pekerjaan dan memperbarui SOP. Risiko sisa dialihkan lewat asuransi dan klausul kontrak sewa. Hasil: tidak ada korban dan tidak ada kerusakan.',
+        valves: [L, L, L], meter: [0, 0, 0], flange: [1, 1, 1], stove: ['off', 'off', 'off'], tech: 'f2', hse: 'hse2', lel: 0, det: 'ok', esv: 'on', newfc: 2,
+        chips: [['good', 'Tahap 5: evaluasi'], ['good', 'Risiko sisa diasuransikan'], ['good', '0 korban']] }
+    ]
+  };
+
+  var scen = 'kejadian', idx = 0, timer = null;
+  var $ = function (id) { return document.getElementById(id); };
+
+  function place(id, p, on) {
+    var n = $(id);
+    n.classList.toggle('off', !on || !p);
+    if (p) n.style.transform = 'translate(' + p[0] + 'px,' + p[1] + 'px)';
+  }
+
+  function render(animate) {
+    var s = SCEN[scen][idx], list = SCEN[scen];
+    $('time').textContent = s.t;
+    $('stepn').textContent = 'Langkah ' + (idx + 1) + '/' + list.length;
+    $('title').textContent = s.title;
+    $('text').textContent = s.text;
+    $('chips').innerHTML = '';
+    s.chips.forEach(function (c) {
+      var sp = document.createElement('span'); sp.className = 'chip ' + c[0]; sp.textContent = c[1]; $('chips').appendChild(sp);
+    });
+    $('lel').style.width = s.lel + '%';
+    $('lel').classList.toggle('hot', s.lel >= 50);
+    $('lel-n').textContent = s.lel + '%';
+    $('lel-n').className = 'big ' + (s.lel >= 50 ? 'bad' : '');
+    $('hurt').textContent = s.hurt || 0;
+    $('hurt').className = 'big ' + (s.hurt ? 'bad' : 'good');
+
+    parts.forEach(function (p, i) {
+      var v = s.valves[i];
+      p.valve.setAttribute('class', 'valve ' + v);
+      p.loto.classList.toggle('on', v === L);
+      p.meter.classList.toggle('gone', !s.meter[i]);
+      p.flange.classList.toggle('on', !!s.flange[i]);
+      p.openend.classList.toggle('on', !s.meter[i] && !s.flange[i]);
+      var flowing = v === V;
+      p.up.setAttribute('class', 'pipe' + (flowing ? ' live' : ''));
+      p.down.setAttribute('class', 'pipe' + (flowing && s.meter[i] ? ' live' : ''));
+      p.flame.classList.toggle('on', s.stove[i] === 'on');
+      p.spark.classList.toggle('on', s.stove[i] === 'try');
+      p.counter.classList.toggle('wreck', !!s.wreck);
+    });
+    $('resto1').classList.toggle('wreck', !!s.wreck);
+    $('resto2').classList.toggle('wreck', !!s.wreck);
+    $('riser').setAttribute('class', 'pipe' + (s.esv === 'shut' ? '' : ' live'));
+
+    var g = $('gascloud');
+    g.style.opacity = s.gas ? Math.min(1, s.gas) : 0;
+    g.style.transform = 'scale(' + (s.gas ? (0.5 + s.gas * 0.6) : 0.4) + ')';
+    $('glass').classList.toggle('broken', !!s.wreck);
+    Array.prototype.forEach.call(document.querySelectorAll('.smoke'), function (c) { c.classList.toggle('on', !!s.smoke); });
+    $('tape').classList.toggle('on', !!s.tape);
+    $('night').classList.toggle('on', !!s.night);
+    $('detector').setAttribute('class', 'detector ' + (s.det ? 'on ' + s.det : ''));
+    $('esv').setAttribute('class', 'esv ' + (s.esv ? 'on' : '') + (s.esv === 'shut' ? ' shut' : ''));
+    $('newfc').classList.toggle('on', s.newfc === 2);
+    $('pipe2').setAttribute('class', 'pipe' + (s.newfc === 2 ? ' live' : ''));
+
+    var t = POS[s.tech];
+    place('p-spv', t && t[0], !!t);
+    place('p-tek', t && t[1], !!t);
+    place('p-hse', POS[s.hse], !!s.hse);
+    place('p-emp', POS[s.emp], !!s.emp);
+    place('p-sec', POS[s.sec], !!s.sec);
+    ['p-emp', 'p-sec'].forEach(function (id) { $(id).classList.toggle('hurt', !!s.injured); });
+
+    var boom = $('boom'), flash = $('flash'), cv = $('canvas');
+    boom.classList.remove('go'); flash.classList.remove('go'); cv.classList.remove('shake');
+    if (s.boom && animate) {
+      void boom.getBoundingClientRect();
+      boom.classList.add('go'); flash.classList.add('go'); cv.classList.add('shake');
+    }
+
+    $('prev').disabled = idx === 0;
+    $('next').disabled = idx === list.length - 1;
+    var steps = $('steps');
+    steps.innerHTML = '';
+    steps.style.setProperty('--accent-step', scen === 'kejadian' ? 'var(--danger)' : 'var(--safe)');
+    list.forEach(function (st, i) {
+      var li = document.createElement('li'), b = document.createElement('button');
+      b.className = (i < idx ? 'done' : '') + (i === idx ? ' cur' : '');
+      b.innerHTML = '<span></span>';
+      b.firstChild.textContent = st.t;
+      b.appendChild(document.createTextNode(st.title));
+      b.addEventListener('click', function () { stop(); idx = i; render(true); });
+      li.appendChild(b); steps.appendChild(li);
+    });
+  }
+
+  function stop() { if (timer) { clearInterval(timer); timer = null; $('play').textContent = 'Putar otomatis'; } }
+  $('next').addEventListener('click', function () { stop(); if (idx < SCEN[scen].length - 1) { idx++; render(true); } });
+  $('prev').addEventListener('click', function () { stop(); if (idx > 0) { idx--; render(true); } });
+  $('play').addEventListener('click', function () {
+    if (timer) return stop();
+    if (idx === SCEN[scen].length - 1) idx = 0;
+    render(true);
+    $('play').textContent = 'Jeda';
+    timer = setInterval(function () {
+      if (idx >= SCEN[scen].length - 1) return stop();
+      idx++; render(true);
+    }, 3800);
+  });
+  function setScen(name) {
+    stop(); scen = name; idx = 0;
+    $('btn-kejadian').setAttribute('aria-pressed', name === 'kejadian');
+    $('btn-solusi').setAttribute('aria-pressed', name === 'solusi');
+    render(false);
+  }
+  $('btn-kejadian').addEventListener('click', function () { setScen('kejadian'); });
+  $('btn-solusi').addEventListener('click', function () { setScen('solusi'); });
+
+  // Tab jawaban
+  var tabs = ['a', 'b', 'c'];
+  tabs.forEach(function (k) {
+    $('tab-' + k).addEventListener('click', function () {
+      tabs.forEach(function (j) {
+        $('tab-' + j).setAttribute('aria-selected', j === k);
+        $('pan-' + j).hidden = j !== k;
+      });
+    });
+  });
+
+  render(false);
+})();
+</script>
+</body>
+</html>
